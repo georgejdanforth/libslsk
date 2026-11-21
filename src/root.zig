@@ -5,6 +5,9 @@ const assert = std.debug.assert;
 
 const build_options = @import("build_options");
 
+/// Wire codecs: pure encode and decode, with no state.
+pub const proto = @import("proto/root.zig");
+
 /// The library version, from `build.zig.zon`.
 pub const version: std.SemanticVersion = std.SemanticVersion.parse(version_string) catch unreachable;
 
@@ -20,4 +23,8 @@ test "version matches version_string" {
     var buffer: [64]u8 = undefined;
     const formatted = try std.fmt.bufPrint(&buffer, "{f}", .{version});
     try std.testing.expectEqualStrings(version_string, formatted);
+}
+
+test {
+    _ = proto;
 }
