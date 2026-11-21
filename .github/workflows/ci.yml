@@ -27,6 +27,26 @@ jobs:
         run: zig build --summary all
       - name: Test
         run: zig build test --summary all
+      # A short fuzz run on Linux only. The decoders do not depend on the platform.
+      # In Zig 0.17.1, `zig build test --fuzz` exits with 0 even when a fuzz test fails, so this
+      # step checks for the crash input file. To reproduce a failure, download the fuzz-crash
+      # artifact and add its bytes to the corpus of the failing test.
+      - name: Fuzz tests
+        if: runner.os == 'Linux'
+        run: |
+          rm -f .zig-cache/f/crash
+          zig build test --fuzz=50K --summary all
+          if [ -f .zig-cache/f/crash ]; then
+            echo "::error::A fuzz test failed. The fuzz-crash artifact has the input."
+            exit 1
+          fi
+      - name: Upload the fuzz crash input
+        if: failure() && runner.os == 'Linux'
+        uses: actions/upload-artifact@v4
+        with:
+          name: fuzz-crash
+          path: .zig-cache/f/crash
+          if-no-files-found: ignore
       - name: Integration tests skip without SLSK_SOULFIND
         run: zig build itest --summary all
 
