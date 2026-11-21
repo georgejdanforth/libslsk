@@ -8,7 +8,7 @@ Check a deliverable when its PR merges, and add the PR number, for example `- [x
   - [x] D0.1: Project skeleton (#1)
   - [x] D0.2: Soulfind test harness (#2)
 - [ ] M1: `slsk.proto` wire codecs
-  - [ ] D1.1: Wire primitives and frame decoder
+  - [x] D1.1: Wire primitives and frame decoder (#3)
   - [ ] D1.2: Server messages
   - [ ] D1.3: Peer messages
   - [ ] D1.4: File-connection and distributed messages
