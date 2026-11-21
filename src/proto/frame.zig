@@ -172,6 +172,8 @@ fn peekFrameSize(bytes: []const u8, format: Format, frame_size_max: u32) Decoder
 }
 
 const testing = std.testing;
+const test_support = @import("test_support.zig");
+const FuzzValue = test_support.FuzzValue;
 
 fn encodeFrame(list: *std.ArrayList(u8), format: Format, code: u32, body: []const u8) !void {
     const writer: wire.Writer = .init(testing.allocator, list);
@@ -194,16 +196,7 @@ test "encode frames" {
     try testing.expectEqualSlices(u8, &expected, list.items);
 }
 
-// The Login example from docs/SLSKPROTOCOL.md, with the frame header.
-const login_example = [_]u8{
-    0x48, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x08, 0x00, 0x00, 0x00,
-    0x75, 0x73, 0x65, 0x72, 0x6e, 0x61, 0x6d, 0x65, 0x08, 0x00, 0x00, 0x00,
-    0x70, 0x61, 0x73, 0x73, 0x77, 0x6f, 0x72, 0x64, 0xb1, 0x00, 0x00, 0x00,
-    0x20, 0x00, 0x00, 0x00, 0x64, 0x35, 0x31, 0x63, 0x39, 0x61, 0x37, 0x65,
-    0x39, 0x33, 0x35, 0x33, 0x37, 0x34, 0x36, 0x61, 0x36, 0x30, 0x32, 0x30,
-    0x66, 0x39, 0x36, 0x30, 0x32, 0x64, 0x34, 0x35, 0x32, 0x39, 0x32, 0x39,
-    0x01, 0x00, 0x00, 0x00,
-};
+const login_example = test_support.login_example;
 
 test "decode the Login example" {
     var decoder: Decoder = .init(.{ .frame_size_max = 1024 });
@@ -212,7 +205,7 @@ test "decode the Login example" {
     try decoder.feed(testing.allocator, &login_example);
     const frame = (try decoder.next(.code_u32)).?;
     try testing.expectEqual(1, frame.code);
-    try testing.expectEqualSlices(u8, login_example[header_size_max..], frame.body);
+    try testing.expectEqualSlices(u8, test_support.login_example_body, frame.body);
     try testing.expectEqual(null, try decoder.next(.code_u32));
 
     var reader: wire.Reader = .init(frame.body);
@@ -225,9 +218,18 @@ const Expected = struct { format: Format, code: u32, body: []const u8 };
 /// code, then peer frames with `u32` codes. It also has an empty body.
 const mixed_frames = [_]Expected{
     .{ .format = .code_u8, .code = 1, .body = "init" },
-    .{ .format = .code_u32, .code = 1, .body = login_example[header_size_max..] },
+    .{ .format = .code_u32, .code = 1, .body = test_support.login_example_body },
     .{ .format = .code_u32, .code = 0xdeadbeef, .body = "" },
     .{ .format = .code_u32, .code = 9, .body = "x" },
+};
+
+/// The bytes of `mixed_frames`.
+const mixed_stream = stream: {
+    var stream: []const u8 = &.{};
+    for (mixed_frames) |expected| {
+        stream = stream ++ test_support.frameBytes(expected.format, expected.code, expected.body);
+    }
+    break :stream stream;
 };
 
 fn encodeFrames(list: *std.ArrayList(u8), frames: []const Expected) !void {
@@ -374,14 +376,80 @@ test "fuzz Decoder with random bytes" {
     // Random bytes, fed in random chunks and read in random formats, must not crash the
     // decoder. The results must match a decoder that gets all the bytes in one feed. Each
     // error must agree with the length field at the error position.
-    try testing.fuzz({}, fuzzDecoderRandom, .{});
+    try testing.fuzz({}, fuzzDecoderRandom, .{ .corpus = fuzz_random_corpus });
 }
 
+const fuzz_random_formats_count = 64;
+
+const FuzzRandomOptions = struct {
+    frame_size_max: u32,
+    stream: []const u8,
+    formats: []const Format,
+    /// After the end of this list, the chunk size is 1.
+    chunk_sizes: []const u32,
+};
+
+/// Encodes a corpus entry for `fuzzDecoderRandom`, in the order of its `Smith` calls.
+fn fuzzRandomInput(comptime options: FuzzRandomOptions) []const u8 {
+    comptime {
+        assert(options.formats.len <= fuzz_random_formats_count);
+        const padding_count = fuzz_random_formats_count - options.formats.len;
+        const padding: [padding_count]Format = @splat(.code_u32);
+        var values: []const FuzzValue = &.{
+            .{ .int = options.frame_size_max },
+            .{ .slice = options.stream },
+        };
+        values = values ++ test_support.fuzzEnums(Format, options.formats ++ &padding);
+        for (options.chunk_sizes) |chunk_size| {
+            values = values ++ [_]FuzzValue{.{ .int = chunk_size }};
+        }
+        return test_support.fuzzInput(values);
+    }
+}
+
+const fuzz_random_corpus: []const []const u8 = &.{
+    // Valid frames in both formats, in three chunks and then one byte at a time.
+    fuzzRandomInput(.{
+        .frame_size_max = 128,
+        .stream = mixed_stream,
+        .formats = &.{ .code_u8, .code_u32, .code_u32, .code_u32 },
+        .chunk_sizes = &.{ 3, 50, 30 },
+    }),
+    // A frame of exactly frame_size_max, then a frame that is one byte too large.
+    fuzzRandomInput(.{
+        .frame_size_max = 8,
+        .stream = test_support.frameBytes(.code_u32, 7, "abcd") ++ &[_]u8{ 9, 0, 0, 0, 'x' },
+        .formats = &.{},
+        .chunk_sizes = &.{},
+    }),
+    // A length of 3 is too short for a u32 code.
+    fuzzRandomInput(.{
+        .frame_size_max = 64,
+        .stream = &.{ 3, 0, 0, 0, 1, 2, 3 },
+        .formats = &.{.code_u32},
+        .chunk_sizes = &.{7},
+    }),
+    // A length of 3 is valid for a u8 code. A length of 0 is too short for both formats.
+    fuzzRandomInput(.{
+        .frame_size_max = 64,
+        .stream = &.{ 3, 0, 0, 0, 1, 2, 3, 0, 0, 0, 0 },
+        .formats = &.{ .code_u8, .code_u8 },
+        .chunk_sizes = &.{ 2, 9 },
+    }),
+    // The stream ends in the middle of a frame.
+    fuzzRandomInput(.{
+        .frame_size_max = 128,
+        .stream = login_example[0..40],
+        .formats = &.{},
+        .chunk_sizes = &.{40},
+    }),
+};
+
 fn fuzzDecoderRandom(_: void, smith: *testing.Smith) anyerror!void {
-    const frame_size_max = smith.valueRangeAtMost(u32, 4, 64);
+    const frame_size_max = smith.valueRangeAtMost(u32, 4, 128);
     var stream_buffer: [512]u8 = undefined;
     const stream = stream_buffer[0..smith.slice(&stream_buffer)];
-    var formats: [64]Format = undefined;
+    var formats: [fuzz_random_formats_count]Format = undefined;
     for (&formats) |*format| format.* = smith.value(Format);
 
     var reference: Decoder = .init(.{ .frame_size_max = frame_size_max });
@@ -431,13 +499,57 @@ fn fuzzDecoderRandom(_: void, smith: *testing.Smith) anyerror!void {
 
 test "fuzz Decoder round trip" {
     // Frames that the encoder writes, fed in random chunks, must decode to the same frames.
-    try testing.fuzz({}, fuzzDecoderRoundTrip, .{});
+    try testing.fuzz({}, fuzzDecoderRoundTrip, .{ .corpus = fuzz_round_trip_corpus });
 }
 
+const fuzz_round_trip_frame_count_max = 16;
+const fuzz_round_trip_body_size_max = 80;
+
+comptime {
+    for (mixed_frames) |expected| assert(expected.body.len <= fuzz_round_trip_body_size_max);
+}
+
+/// Encodes a corpus entry for `fuzzDecoderRoundTrip`, in the order of its `Smith` calls.
+/// After the end of `chunk_sizes`, the chunk size is 1.
+fn fuzzRoundTripInput(
+    comptime frames: []const Expected,
+    comptime chunk_sizes: []const u32,
+) []const u8 {
+    comptime {
+        assert(frames.len <= fuzz_round_trip_frame_count_max);
+        var values: []const FuzzValue = &.{};
+        for (frames) |expected| {
+            values = values ++ [_]FuzzValue{
+                .{ .eos = false },
+                .{ .int = @backingInt(expected.format) },
+                .{ .int = expected.code },
+                .{ .slice = expected.body },
+            };
+        }
+        values = values ++ [_]FuzzValue{.{ .eos = true }};
+        for (chunk_sizes) |chunk_size| values = values ++ [_]FuzzValue{.{ .int = chunk_size }};
+        return test_support.fuzzInput(values);
+    }
+}
+
+const fuzz_round_trip_corpus: []const []const u8 = &.{
+    fuzzRoundTripInput(&mixed_frames, &.{}),
+    fuzzRoundTripInput(&mixed_frames, &.{ 5, 7, 60 }),
+    // The largest codes, and the largest body.
+    fuzzRoundTripInput(&.{
+        .{ .format = .code_u8, .code = 0xff, .body = "" },
+        .{
+            .format = .code_u32,
+            .code = 0xffffffff,
+            .body = &@as([fuzz_round_trip_body_size_max]u8, @splat(0xab)),
+        },
+    }, &.{ 4, 1, 100 }),
+};
+
 fn fuzzDecoderRoundTrip(_: void, smith: *testing.Smith) anyerror!void {
-    const frame_count_max = 16;
+    const frame_count_max = fuzz_round_trip_frame_count_max;
     var frames: [frame_count_max]Expected = undefined;
-    var bodies: [frame_count_max][32]u8 = undefined;
+    var bodies: [frame_count_max][fuzz_round_trip_body_size_max]u8 = undefined;
 
     var frame_count: usize = 0;
     while (frame_count < frame_count_max and !smith.eosWeightedSimple(7, 1)) {

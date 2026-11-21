@@ -132,6 +132,7 @@ fn assertWireInt(comptime T: type) void {
 }
 
 const testing = std.testing;
+const test_support = @import("test_support.zig");
 
 test "integers are little-endian" {
     var list: std.ArrayList(u8) = .empty;
@@ -270,17 +271,10 @@ test "readRest consumes the rest of the body" {
 
 test "Login example from the specification" {
     // The "Sending Login Example" from docs/SLSKPROTOCOL.md, without the frame header.
-    const body = [_]u8{
-        0x08, 0x00, 0x00, 0x00, 0x75, 0x73, 0x65, 0x72, 0x6e, 0x61, 0x6d, 0x65,
-        0x08, 0x00, 0x00, 0x00, 0x70, 0x61, 0x73, 0x73, 0x77, 0x6f, 0x72, 0x64,
-        0xb1, 0x00, 0x00, 0x00, 0x20, 0x00, 0x00, 0x00, 0x64, 0x35, 0x31, 0x63,
-        0x39, 0x61, 0x37, 0x65, 0x39, 0x33, 0x35, 0x33, 0x37, 0x34, 0x36, 0x61,
-        0x36, 0x30, 0x32, 0x30, 0x66, 0x39, 0x36, 0x30, 0x32, 0x64, 0x34, 0x35,
-        0x32, 0x39, 0x32, 0x39, 0x01, 0x00, 0x00, 0x00,
-    };
+    const body = test_support.login_example_body;
     const checksum = "d51c9a7e9353746a6020f9602d452929";
 
-    var reader: Reader = .init(&body);
+    var reader: Reader = .init(body);
     try testing.expectEqualStrings("username", try reader.readString());
     try testing.expectEqualStrings("password", try reader.readString());
     try testing.expectEqual(177, try reader.readInt(u32));
@@ -296,24 +290,46 @@ test "Login example from the specification" {
     try writer.writeInt(u32, 177);
     try writer.writeString(checksum);
     try writer.writeInt(u32, 1);
-    try testing.expectEqualSlices(u8, &body, list.items);
+    try testing.expectEqualSlices(u8, body, list.items);
 }
 
 test "fuzz Reader" {
     // Random bytes, read as a random sequence of primitives, must give values or EndOfMessage.
     // The reader must never read past the body.
-    try testing.fuzz({}, fuzzReader, .{});
+    try testing.fuzz({}, fuzzReader, .{ .corpus = fuzz_reader_corpus });
 }
+
+const FuzzPrimitive = enum(u8) { u8, u16, u32, u64, i32, bool, string, bytes, ip4, rest };
+
+/// Each entry is a body, then the primitives to read from it. See `fuzzReader`.
+const fuzz_reader_corpus: []const []const u8 = &.{
+    // The Login example, read field by field.
+    test_support.fuzzInput(&[_]test_support.FuzzValue{
+        .{ .slice = test_support.login_example_body },
+    } ++ test_support.fuzzEnums(FuzzPrimitive, &.{ .string, .string, .u32, .string, .u32 })),
+    // Each integer type, an address, a bool, and the rest.
+    test_support.fuzzInput(&[_]test_support.FuzzValue{
+        .{ .slice = &.{
+            0x12, 0x56, 0x34, 0xde, 0xbc, 0x9a, 0x78, 0x08, 0x07, 0x06, 0x05, 0x04, 0x03,
+            0x02, 0x01, 0xfe, 0xff, 0xff, 0xff, 0x01, 0x00, 0x00, 0x7f, 0x02, 0xaa,
+        } },
+    } ++ test_support.fuzzEnums(FuzzPrimitive, &.{
+        .u8, .u16, .u32, .u64, .i32, .ip4, .bool, .rest,
+    })),
+    // A length prefix that is larger than the body.
+    test_support.fuzzInput(&[_]test_support.FuzzValue{
+        .{ .slice = &.{ 0xff, 0xff, 0xff, 0xff, 'a' } },
+    } ++ test_support.fuzzEnums(FuzzPrimitive, &.{ .bytes, .u8, .u64 })),
+};
 
 fn fuzzReader(_: void, smith: *testing.Smith) anyerror!void {
     var body_buffer: [256]u8 = undefined;
     const body = body_buffer[0..smith.slice(&body_buffer)];
 
-    const Primitive = enum { u8, u16, u32, u64, i32, bool, string, bytes, ip4, rest };
     var reader: Reader = .init(body);
     for (0..64) |_| {
         const remaining_before = reader.remaining();
-        const result = switch (smith.value(Primitive)) {
+        const result = switch (smith.value(FuzzPrimitive)) {
             .u8 => if (reader.readInt(u8)) |_| {} else |err| err,
             .u16 => if (reader.readInt(u16)) |_| {} else |err| err,
             .u32 => if (reader.readInt(u32)) |_| {} else |err| err,
