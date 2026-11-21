@@ -64,9 +64,27 @@ pub fn build(b: *std.Build) void {
         test_step.dependOn(&c_smoke_run.step);
     }
 
+    const itest_step = b.step("itest", "Run integration tests (needs SLSK_SOULFIND)");
+    const itests = b.addTest(.{
+        .name = "itest",
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("tests/integration/root.zig"),
+            .target = target,
+            .optimize = optimize,
+            .imports = &.{
+                .{ .name = "slsk", .module = slsk },
+            },
+        }),
+    });
+    const itests_run = b.addRunArtifact(itests);
+    // The tests read SLSK_SOULFIND and talk to a live server at run time, so the build system
+    // must not reuse a cached result.
+    itests_run.has_side_effects = true;
+    itest_step.dependOn(&itests_run.step);
+
     const fmt_step = b.step("fmt", "Check the formatting of Zig source files");
     fmt_step.dependOn(&b.addFmt(.{
-        .paths = b.pathList(&.{ "build.zig", "build.zig.zon", "src" }),
+        .paths = b.pathList(&.{ "build.zig", "build.zig.zon", "src", "tests" }),
         .check = true,
     }).step);
 }
