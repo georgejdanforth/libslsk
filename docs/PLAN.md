@@ -4,9 +4,9 @@
 
 Check a deliverable when its PR merges, and add the PR number, for example `- [x] D0.1: Project skeleton (#3)`. Check a milestone when all its deliverables are checked.
 
-- [ ] M0: Project setup
+- [x] M0: Project setup
   - [x] D0.1: Project skeleton (#1)
-  - [ ] D0.2: Soulfind test harness
+  - [x] D0.2: Soulfind test harness (#2)
 - [ ] M1: `slsk.proto` wire codecs
   - [ ] D1.1: Wire primitives and frame decoder
   - [ ] D1.2: Server messages
