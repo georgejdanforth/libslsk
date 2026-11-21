@@ -39,10 +39,21 @@ pub fn build(b: *std.Build) void {
 
     const test_step = b.step("test", "Run unit tests and C tests");
 
-    const slsk_tests = b.addTest(.{ .root_module = slsk });
+    // Zig's own x86_64 backend adds no fuzz instrumentation, so `zig build test --fuzz` fails on
+    // x86_64 with "corrupted coverage file". Use -Duse-llvm for fuzz runs there.
+    const use_llvm = b.option(
+        bool,
+        "use-llvm",
+        "Build the unit tests with LLVM (needed for --fuzz on x86_64)",
+    );
+
+    const slsk_tests = b.addTest(.{ .root_module = slsk, .use_llvm = use_llvm });
     test_step.dependOn(&b.addRunArtifact(slsk_tests).step);
 
-    const c_api_tests = b.addTest(.{ .root_module = lib_static.root_module });
+    const c_api_tests = b.addTest(.{
+        .root_module = lib_static.root_module,
+        .use_llvm = use_llvm,
+    });
     test_step.dependOn(&b.addRunArtifact(c_api_tests).step);
 
     // Link the smoke test to each library, so that both export the C symbols.

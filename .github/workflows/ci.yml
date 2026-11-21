@@ -28,6 +28,7 @@ jobs:
       - name: Test
         run: zig build test --summary all
       # A short fuzz run on Linux only. The decoders do not depend on the platform.
+      # Zig 0.17.1 needs LLVM (-Duse-llvm) for fuzz instrumentation on x86_64.
       # In Zig 0.17.1, `zig build test --fuzz` exits with 0 even when a fuzz test fails, so this
       # step checks for the crash input file. To reproduce a failure, download the fuzz-crash
       # artifact and add its bytes to the corpus of the failing test.
@@ -35,7 +36,7 @@ jobs:
         if: runner.os == 'Linux'
         run: |
           rm -f .zig-cache/f/crash
-          zig build test --fuzz=50K --summary all
+          zig build test -Duse-llvm --fuzz=50K --summary all
           if [ -f .zig-cache/f/crash ]; then
             echo "::error::A fuzz test failed. The fuzz-crash artifact has the input."
             exit 1
