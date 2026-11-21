@@ -8,7 +8,8 @@
 #
 # Environment:
 #   SLSK_SOULFIND_PORT   Host port for Soulfind (default: 2242).
-#   SLSK_SOULFIND_IMAGE  Docker image (default: ghcr.io/soulfind-dev/soulfind:latest).
+#   SLSK_SOULFIND_IMAGE  Docker image (default: the pinned image below). To try the newest
+#                        Soulfind, set it to ghcr.io/soulfind-dev/soulfind:latest.
 #
 # Soulfind is GPL-3.0. We run it only as an external tool. We do not vendor or link it.
 
@@ -16,7 +17,15 @@ set -euo pipefail
 
 container="slsk-soulfind"
 port="${SLSK_SOULFIND_PORT:-2242}"
-image="${SLSK_SOULFIND_IMAGE:-ghcr.io/soulfind-dev/soulfind:latest}"
+
+# Soulfind publishes only "latest" tags, so we pin the image by digest. Then an upstream change
+# cannot break the tests without a change in this repository. The digest is for the multi-arch
+# image index, so it works on linux/amd64 (CI) and linux/arm64 (Apple Silicon).
+# To get the digest of the newest image, run:
+#   docker buildx imagetools inspect ghcr.io/soulfind-dev/soulfind:latest
+# Pinned on 2026-11-21 (Soulfind build "Nov-21-2026").
+image_pinned="ghcr.io/soulfind-dev/soulfind@sha256:7d952deb11df2a9d3ff62de6163042994d9b12ae694f491c8a2d335267df0ff4"
+image="${SLSK_SOULFIND_IMAGE:-${image_pinned}}"
 wait_seconds_max=30
 
 usage() {
