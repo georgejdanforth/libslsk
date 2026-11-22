@@ -10,7 +10,7 @@ Check a deliverable when its PR merges, and add the PR number, for example `- [x
 - [ ] M1: `slsk.proto` wire codecs
   - [x] D1.1: Wire primitives and frame decoder (#3)
   - [x] D1.2: Server messages (#4)
-  - [ ] D1.3: Peer messages
+  - [x] D1.3: Peer messages
   - [ ] D1.4: File-connection and distributed messages
 - [ ] M2: Core skeleton, server session, first end-to-end test
   - [ ] D2.1: Core skeleton
