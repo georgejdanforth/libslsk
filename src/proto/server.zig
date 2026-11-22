@@ -17,6 +17,7 @@ const assert = std.debug.assert;
 const Allocator = std.mem.Allocator;
 
 const frame = @import("frame.zig");
+const common = @import("common.zig");
 const wire = @import("wire.zig");
 
 /// The server message codes that libslsk implements. Other codes decode to `.unknown`.
@@ -56,36 +57,8 @@ pub const ObfuscationType = enum(u32) {
     _,
 };
 
-/// See "Connection Types" in the specification. On the wire, the type is a string.
-pub const ConnectionType = enum {
-    peer,
-    file,
-    distributed,
-
-    pub fn string(connection_type: ConnectionType) []const u8 {
-        return switch (connection_type) {
-            .peer => "P",
-            .file => "F",
-            .distributed => "D",
-        };
-    }
-
-    pub fn parse(bytes: []const u8) error{InvalidConnectionType}!ConnectionType {
-        if (bytes.len != 1) return error.InvalidConnectionType;
-        return switch (bytes[0]) {
-            'P' => .peer,
-            'F' => .file,
-            'D' => .distributed,
-            else => error.InvalidConnectionType,
-        };
-    }
-};
-
-/// A message with a code that the direction does not implement.
-pub const Unknown = struct {
-    code: u32,
-    body: []const u8,
-};
+const ConnectionType = common.ConnectionType;
+const Unknown = common.Unknown;
 
 /// The size of the checksum in `ToServer.Login`.
 pub const login_checksum_size = 2 * std.crypto.hash.Md5.digest_length;
@@ -549,24 +522,14 @@ pub const FromServer = union(enum) {
 };
 
 fn messageCode(comptime Message: type, message: Message) u32 {
-    return switch (message) {
-        .unknown => |unknown| unknown.code,
-        inline else => |_, tag| @backingInt(@field(Code, @tagName(tag))),
-    };
+    return common.code(Code, Message, message);
 }
 
-/// Returns true if `Message` has its own tag for `code`.
 fn isKnownCode(comptime Message: type, code: u32) bool {
-    inline for (@typeInfo(Message).@"union".field_names) |name| {
-        if (comptime std.mem.eql(u8, name, "unknown")) continue;
-        if (code == @backingInt(@field(Code, name))) return true;
-    }
-    return false;
+    return common.isKnownCode(Code, Message, code);
 }
 
-fn unknownMessage(message_frame: frame.Frame) Unknown {
-    return .{ .code = message_frame.code, .body = message_frame.body };
-}
+const unknownMessage = common.unknownMessage;
 
 comptime {
     // Each code goes in at least one direction.
@@ -593,15 +556,8 @@ fn serverFrame(comptime code: Code, comptime body: []const u8) []const u8 {
     return test_support.frameBytes(.code_u32, @backingInt(code), body);
 }
 
-/// The frame header of `bytes`, split off.
 fn splitFrame(bytes: []const u8) frame.Frame {
-    assert(bytes.len >= frame.header_size_max);
-    const length = std.mem.readInt(u32, bytes[0..frame.length_size], .little);
-    assert(length == bytes.len - frame.length_size);
-    return .{
-        .code = std.mem.readInt(u32, bytes[frame.length_size..][0..4], .little),
-        .body = bytes[frame.header_size_max..],
-    };
+    return test_support.splitFrame(.code_u32, bytes);
 }
 
 fn expectGolden(comptime Message: type, golden: []const Golden(Message)) !void {
@@ -1001,11 +957,6 @@ test "bytes after the last field are ignored" {
 }
 
 test "invalid connection types" {
-    // "X" is not a type, and "PF" is longer than one character.
-    for ([_][]const u8{ "X", "PF", "", "p" }) |connection_type| {
-        try testing.expectError(error.InvalidConnectionType, ConnectionType.parse(connection_type));
-    }
-
     var list: std.ArrayList(u8) = .empty;
     defer list.deinit(testing.allocator);
     const writer: wire.Writer = .init(testing.allocator, &list);
