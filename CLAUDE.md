@@ -31,7 +31,8 @@ The library uses a sans-IO design. The protocol core does no I/O.
 Rules for the core:
 
 - The host gives the core bytes, connection events, timer events, and the current time (`now_ms`). The core never reads a clock.
-- The core returns actions (`open_conn`, `send`, `close`, `set_timer`, `listen`, `transfer_ready`) and application events.
+- The core returns actions (`open_conn`, `send`, `close`, `listen`, `transfer_ready`) and application events.
+- The core exposes one timer deadline. The host calls `timerFired` at or after it.
 - Connections are integer handles. The core assigns them.
 - The core does not send file bodies. After the `F` handshake, it emits `transfer_ready`, and the host moves the bytes.
 - The core takes an allocator at init. It does not use a global allocator.

@@ -8,6 +8,9 @@ const build_options = @import("build_options");
 /// Wire codecs: pure encode and decode, with no state.
 pub const proto = @import("proto/root.zig");
 
+/// The sans-IO protocol state machine.
+pub const core = @import("core/root.zig");
+
 /// The library version, from `build.zig.zon`.
 pub const version: std.SemanticVersion = std.SemanticVersion.parse(version_string) catch unreachable;
 
@@ -27,4 +30,5 @@ test "version matches version_string" {
 
 test {
     _ = proto;
+    _ = core;
 }
