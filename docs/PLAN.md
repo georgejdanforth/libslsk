@@ -50,7 +50,8 @@ libslsk (C)   exports the core through a C ABI
 
 - The core decides what to do. The host does all I/O.
 - The host gives the core bytes, connection events, timer events, and the current time (`now_ms`).
-- The core returns actions (`open_conn`, `send`, `close`, `set_timer`, `listen`, `transfer_ready`) and application events.
+- The core returns actions (`open_conn`, `send`, `close`, `listen`, `transfer_ready`) and application events.
+- The core exposes one timer deadline. The host calls `timerFired` at or after it.
 - The Zig `Client` is one host. It uses `std.Io`.
 - C users drive the core from their own event loop.
 - A managed C client (with an internal `Io`) is out of scope for now.
