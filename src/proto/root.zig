@@ -2,8 +2,10 @@
 
 pub const wire = @import("wire.zig");
 pub const frame = @import("frame.zig");
+pub const server = @import("server.zig");
 
 test {
     _ = wire;
     _ = frame;
+    _ = server;
 }
