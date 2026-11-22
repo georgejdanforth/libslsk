@@ -38,6 +38,36 @@ pub fn frameBytes(
     }
 }
 
+/// Splits a complete frame into the code and the body. The frame must have exactly one message.
+pub fn splitFrame(format: frame.Format, bytes: []const u8) frame.Frame {
+    const header_size = frame.length_size + format.codeSize();
+    assert(bytes.len >= header_size);
+    const length = std.mem.readInt(u32, bytes[0..frame.length_size], .little);
+    assert(length == bytes.len - frame.length_size);
+    const code: u32 = switch (format) {
+        .code_u32 => std.mem.readInt(u32, bytes[frame.length_size..][0..4], .little),
+        .code_u8 => bytes[frame.length_size],
+    };
+    return .{ .code = code, .body = bytes[header_size..] };
+}
+
+/// Returns the little-endian bytes of an integer, for test vectors.
+pub fn intBytes(comptime T: type, comptime value: T) []const u8 {
+    comptime {
+        var bytes: [@sizeOf(T)]u8 = undefined;
+        std.mem.writeInt(T, &bytes, value, .little);
+        const result = bytes;
+        return &result;
+    }
+}
+
+/// Returns a string with its `u32` length prefix, for test vectors.
+pub fn stringBytes(comptime value: []const u8) []const u8 {
+    comptime {
+        return intBytes(u32, value.len) ++ value;
+    }
+}
+
 /// One value in a fuzz input. See `fuzzInput`.
 pub const FuzzValue = union(enum) {
     /// For `Smith.eos*`.
@@ -119,4 +149,21 @@ test frameBytes {
     try std.testing.expectEqualSlices(u8, &.{ 0x03, 0x00, 0x00, 0x00, 0x05, 'a', 'b' }, bytes);
     const login = comptime frameBytes(.code_u32, 1, login_example_body);
     try std.testing.expectEqualSlices(u8, &login_example, login);
+}
+
+test splitFrame {
+    const login = splitFrame(.code_u32, &login_example);
+    try std.testing.expectEqual(1, login.code);
+    try std.testing.expectEqualSlices(u8, login_example_body, login.body);
+
+    const init = splitFrame(.code_u8, comptime frameBytes(.code_u8, 0xab, "xy"));
+    try std.testing.expectEqual(0xab, init.code);
+    try std.testing.expectEqualStrings("xy", init.body);
+}
+
+test "intBytes and stringBytes" {
+    const int = comptime intBytes(u32, 0x12345678);
+    try std.testing.expectEqualSlices(u8, &.{ 0x78, 0x56, 0x34, 0x12 }, int);
+    const hi = comptime stringBytes("hi");
+    try std.testing.expectEqualSlices(u8, &.{ 0x02, 0x00, 0x00, 0x00, 'h', 'i' }, hi);
 }
